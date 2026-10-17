@@ -4,6 +4,9 @@ import { TrackedShow, WatchActivityItem } from '../types/tv';
 const LS_SUPABASE_URL = 'watchdat_supabase_url';
 const LS_SUPABASE_ANON_KEY = 'watchdat_supabase_anon_key';
 
+const DEFAULT_SUPABASE_URL = 'https://qsplvkggcifngglqqiep.supabase.co';
+const DEFAULT_SUPABASE_ANON_KEY = 'sb_publishable_irizvOqUqSDaQPy74BH59w_WEb3CkKz';
+
 let cachedClient: SupabaseClient | null = null;
 let cachedConfigKey = '';
 
@@ -36,8 +39,8 @@ export function getSupabaseConfig(): { url: string; anonKey: string; isConfigure
   const storedUrl = localStorage.getItem(LS_SUPABASE_URL)?.trim() || '';
   const storedKey = localStorage.getItem(LS_SUPABASE_ANON_KEY)?.trim() || '';
 
-  const url = storedUrl || envUrl;
-  const anonKey = storedKey || envKey;
+  const url = storedUrl || envUrl || DEFAULT_SUPABASE_URL;
+  const anonKey = storedKey || envKey || DEFAULT_SUPABASE_ANON_KEY;
 
   return {
     url,
