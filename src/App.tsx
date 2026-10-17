@@ -283,7 +283,7 @@ export function App() {
 
     for (const s of shows) {
       if (
-        !(s.manualStatus === 'watch_later' && s.watchedEpisodeIds.length === 0) &&
+        s.manualStatus !== 'watch_later' &&
         getNextEpisodeToWatch(s, now) !== null
       ) {
         watchNextCount++;
@@ -300,6 +300,17 @@ export function App() {
   const handleAddShow = async (showId: number, manualStatus: ManualWatchStatus = 'auto') => {
     const existing = shows.find((s) => s.id === showId);
     if (existing) {
+      if (manualStatus === 'watch_later' && existing.manualStatus !== 'watch_later') {
+        setShows((prev) =>
+          prev.map((s) =>
+            s.id === showId
+              ? { ...s, manualStatus: 'watch_later', lastUpdated: Date.now() }
+              : s
+          )
+        );
+        showToast(`Moved "${existing.name}" to Watch Later`);
+        return;
+      }
       setSelectedShowId(existing.id);
       return;
     }
@@ -335,6 +346,7 @@ export function App() {
               ...s,
               watchedEpisodeIds: Array.from(watchedSet),
               lastWatchedAt: !wasWatched ? nowTs : s.lastWatchedAt,
+              lastUpdated: nowTs,
               manualStatus:
                 !wasWatched && s.manualStatus === 'watch_later' ? 'auto' : s.manualStatus
             }
@@ -388,6 +400,7 @@ export function App() {
               ...s,
               watchedEpisodeIds: Array.from(watchedSet),
               lastWatchedAt: nowTs,
+              lastUpdated: nowTs,
               manualStatus: s.manualStatus === 'watch_later' ? 'auto' : s.manualStatus
             }
           : s
@@ -426,6 +439,7 @@ export function App() {
               ...s,
               watchedEpisodeIds: Array.from(watchedSet),
               lastWatchedAt: markWatched ? nowTs : s.lastWatchedAt,
+              lastUpdated: nowTs,
               manualStatus:
                 markWatched && s.manualStatus === 'watch_later' ? 'auto' : s.manualStatus
             }
@@ -453,13 +467,15 @@ export function App() {
       }
     }
 
+    const nowTs = Date.now();
     setShows((prev) =>
       prev.map((s) =>
         s.id === showId
           ? {
               ...s,
               watchedEpisodeIds: Array.from(watchedSet),
-              lastWatchedAt: Date.now(),
+              lastWatchedAt: nowTs,
+              lastUpdated: nowTs,
               manualStatus: 'auto'
             }
           : s
@@ -474,9 +490,28 @@ export function App() {
     showId: number,
     updates: Partial<Pick<TrackedShow, 'manualStatus' | 'userRating' | 'userNotes' | 'favorite'>>
   ) => {
+    const targetShow = shows.find((s) => s.id === showId);
     setShows((prev) =>
-      prev.map((s) => (s.id === showId ? { ...s, ...updates } : s))
+      prev.map((s) =>
+        s.id === showId ? { ...s, ...updates, lastUpdated: Date.now() } : s
+      )
     );
+    if (targetShow && updates.manualStatus) {
+      showToast(
+        updates.manualStatus === 'watch_later'
+          ? `Moved "${targetShow.name}" to Watch Later`
+          : `Moved "${targetShow.name}" out of Watch Later`
+      );
+    }
+  };
+
+  // One-tap toggle Watch Later status on any tracked show
+  const handleToggleWatchLater = (showId: number) => {
+    const targetShow = shows.find((s) => s.id === showId);
+    if (!targetShow) return;
+    const nextStatus: ManualWatchStatus =
+      targetShow.manualStatus === 'watch_later' ? 'auto' : 'watch_later';
+    handleUpdateShowMeta(showId, { manualStatus: nextStatus });
   };
 
   // Refresh a single show's episodes from TVMaze
@@ -784,6 +819,7 @@ export function App() {
             shows={shows}
             onSelectShow={(s) => setSelectedShowId(s.id)}
             onToggleEpisode={handleToggleEpisode}
+            onToggleWatchLater={handleToggleWatchLater}
             onGoToDiscover={() => setActivePage('discover')}
             onLoadStarterShows={handleLoadStarterShows}
             isLoadingStarter={isLoadingStarter}
@@ -805,6 +841,7 @@ export function App() {
           <DiscoverView
             trackedShows={shows}
             onAddShow={handleAddShow}
+            onToggleWatchLater={handleToggleWatchLater}
             onSelectTrackedShow={(s) => setSelectedShowId(s.id)}
           />
         )}

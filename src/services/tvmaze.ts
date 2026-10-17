@@ -120,7 +120,7 @@ export function getComputedWatchTab(
   show: TrackedShow,
   now: Date = new Date()
 ): Exclude<WatchlistTab, 'all'> {
-  if (show.manualStatus === 'watch_later' && show.watchedEpisodeIds.length === 0) {
+  if (show.manualStatus === 'watch_later') {
     return 'watch_later';
   }
 

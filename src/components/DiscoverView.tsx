@@ -23,12 +23,14 @@ import {
 interface DiscoverViewProps {
   trackedShows: TrackedShow[];
   onAddShow: (showId: number, manualStatus?: ManualWatchStatus) => Promise<void>;
+  onToggleWatchLater: (showId: number) => void;
   onSelectTrackedShow: (show: TrackedShow) => void;
 }
 
 export const DiscoverView: React.FC<DiscoverViewProps> = ({
   trackedShows,
   onAddShow,
+  onToggleWatchLater,
   onSelectTrackedShow
 }) => {
   const [query, setQuery] = useState('');
@@ -203,17 +205,39 @@ export const DiscoverView: React.FC<DiscoverViewProps> = ({
         </div>
 
         {/* Action Buttons */}
-        <div className="p-3 pt-0 flex items-center gap-1.5">
+        <div className="p-3 pt-0 flex flex-col gap-1.5">
           {tracked ? (
-            <button
-              onClick={() => onSelectTrackedShow(tracked)}
-              className="w-full py-2 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-emerald-300 font-bold text-xs flex items-center justify-center gap-1.5 transition cursor-pointer"
-            >
-              <Check className="w-3.5 h-3.5 stroke-[2.5]" />
-              Tracked • View Episodes
-            </button>
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={() => onSelectTrackedShow(tracked)}
+                className="flex-1 py-2 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-emerald-300 font-bold text-xs flex items-center justify-center gap-1 transition cursor-pointer"
+              >
+                <Check className="w-3.5 h-3.5 stroke-[2.5]" />
+                Tracked
+              </button>
+              <button
+                onClick={() => onToggleWatchLater(tracked.id)}
+                title={
+                  tracked.manualStatus === 'watch_later'
+                    ? 'Remove from Watch Later'
+                    : 'Move to Watch Later'
+                }
+                className={`px-2.5 py-2 rounded-xl border font-bold text-xs flex items-center justify-center gap-1 transition cursor-pointer ${
+                  tracked.manualStatus === 'watch_later'
+                    ? 'bg-purple-500/20 hover:bg-purple-500/30 border-purple-500/40 text-purple-300'
+                    : 'bg-zinc-800 hover:bg-zinc-700 border-zinc-700 text-zinc-300 hover:text-purple-300'
+                }`}
+              >
+                <Bookmark
+                  className={`w-3.5 h-3.5 ${
+                    tracked.manualStatus === 'watch_later' ? 'fill-purple-400 text-purple-400' : ''
+                  }`}
+                />
+                <span>Watch Later</span>
+              </button>
+            </div>
           ) : (
-            <>
+            <div className="flex items-center gap-1.5">
               <button
                 onClick={() => handleTrackClick(raw.id, 'auto')}
                 disabled={isAdding}
@@ -224,17 +248,18 @@ export const DiscoverView: React.FC<DiscoverViewProps> = ({
                 ) : (
                   <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
                 )}
-                Track Show
+                Track
               </button>
               <button
                 onClick={() => handleTrackClick(raw.id, 'watch_later')}
                 disabled={isAdding}
                 title="Save to Watch Later"
-                className="p-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-300 hover:text-amber-300 transition disabled:opacity-50 cursor-pointer"
+                className="px-2.5 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-200 hover:text-purple-300 font-bold text-xs flex items-center justify-center gap-1 transition disabled:opacity-50 cursor-pointer"
               >
-                <Bookmark className="w-3.5 h-3.5" />
+                <Bookmark className="w-3.5 h-3.5 text-purple-400" />
+                <span>Watch Later</span>
               </button>
-            </>
+            </div>
           )}
         </div>
       </div>

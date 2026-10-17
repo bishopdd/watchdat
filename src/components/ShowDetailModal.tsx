@@ -179,9 +179,37 @@ export const ShowDetailModal: React.FC<ShowDetailModalProps> = ({
 
             <div className="flex items-center gap-2">
               <button
+                type="button"
+                onClick={() =>
+                  onUpdateShowMeta(show.id, {
+                    manualStatus: show.manualStatus === 'watch_later' ? 'auto' : 'watch_later'
+                  })
+                }
+                title={
+                  show.manualStatus === 'watch_later'
+                    ? 'Remove from Watch Later (return to active list)'
+                    : 'Move to Watch Later'
+                }
+                className={`px-3 py-1.5 rounded-full border text-xs font-bold flex items-center gap-1.5 transition cursor-pointer ${
+                  show.manualStatus === 'watch_later'
+                    ? 'bg-amber-400 text-zinc-950 border-amber-400 shadow-sm'
+                    : 'bg-zinc-800/90 border-zinc-700/70 text-zinc-200 hover:border-amber-400/60 hover:text-amber-300'
+                }`}
+              >
+                <Bookmark
+                  className={`w-3.5 h-3.5 ${
+                    show.manualStatus === 'watch_later' ? 'fill-zinc-950' : ''
+                  }`}
+                />
+                <span>
+                  {show.manualStatus === 'watch_later' ? 'In Watch Later' : 'Watch Later'}
+                </span>
+              </button>
+
+              <button
                 onClick={() => onUpdateShowMeta(show.id, { favorite: !show.favorite })}
                 title={show.favorite ? 'Remove from favorites' : 'Mark as favorite'}
-                className={`p-2 rounded-full border transition ${
+                className={`p-2 rounded-full border transition cursor-pointer ${
                   show.favorite
                     ? 'bg-rose-500/20 border-rose-500/40 text-rose-400'
                     : 'bg-zinc-800/80 border-zinc-700/60 text-zinc-400 hover:text-zinc-200'
@@ -193,13 +221,13 @@ export const ShowDetailModal: React.FC<ShowDetailModalProps> = ({
                 onClick={handleRefresh}
                 disabled={isRefreshing}
                 title="Refresh episode air dates from TVMaze"
-                className="p-2 rounded-full bg-zinc-800/80 border border-zinc-700/60 text-zinc-300 hover:text-white hover:bg-zinc-700 transition disabled:opacity-50"
+                className="p-2 rounded-full bg-zinc-800/80 border border-zinc-700/60 text-zinc-300 hover:text-white hover:bg-zinc-700 transition disabled:opacity-50 cursor-pointer"
               >
                 <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin text-amber-400' : ''}`} />
               </button>
               <button
                 onClick={onClose}
-                className="p-2 rounded-full bg-zinc-800/80 border border-zinc-700/60 text-zinc-300 hover:text-white hover:bg-zinc-700 transition"
+                className="p-2 rounded-full bg-zinc-800/80 border border-zinc-700/60 text-zinc-300 hover:text-white hover:bg-zinc-700 transition cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -263,20 +291,30 @@ export const ShowDetailModal: React.FC<ShowDetailModalProps> = ({
                 </p>
               )}
 
-              {/* User Status & Personal Rating Controls */}
+              {/* Watch Later Button & Personal Rating Controls */}
               <div className="mt-3 flex flex-wrap items-center gap-2">
-                <select
-                  value={show.manualStatus}
-                  onChange={(e) =>
+                <button
+                  type="button"
+                  onClick={() =>
                     onUpdateShowMeta(show.id, {
-                      manualStatus: e.target.value as ManualWatchStatus
+                      manualStatus: show.manualStatus === 'watch_later' ? 'auto' : 'watch_later'
                     })
                   }
-                  className="bg-zinc-900/90 border border-zinc-700 text-xs text-zinc-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-amber-400"
+                  className={`px-3.5 py-1.5 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition cursor-pointer ${
+                    show.manualStatus === 'watch_later'
+                      ? 'bg-amber-400 text-zinc-950 border-amber-400 shadow-sm'
+                      : 'bg-zinc-900/90 border-zinc-700 text-zinc-200 hover:border-amber-400 hover:text-amber-300'
+                  }`}
                 >
-                  <option value="auto">Smart List (Auto TV Time Mode)</option>
-                  <option value="watch_later">Save for Watch Later</option>
-                </select>
+                  <Bookmark
+                    className={`w-3.5 h-3.5 ${
+                      show.manualStatus === 'watch_later' ? 'fill-zinc-950' : ''
+                    }`}
+                  />
+                  {show.manualStatus === 'watch_later'
+                    ? 'Saved in Watch Later (Tap to Resume)'
+                    : 'Move to Watch Later'}
+                </button>
 
                 {/* Personal 5-star rating */}
                 <div className="flex items-center gap-0.5 bg-zinc-900/90 border border-zinc-800 rounded-lg px-2 py-1">

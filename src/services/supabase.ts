@@ -147,16 +147,20 @@ export function mergeLocalAndCloudWatchlists(
       const unionWatched = Array.from(
         new Set([...(existing.watchedEpisodeIds || []), ...(lShow.watchedEpisodeIds || [])])
       );
-      // Prefer whichever show object has fuller episode details
+      // Prefer whichever show object has fuller episode details for base metadata
       const baseShow =
         (lShow.episodes?.length || 0) >= (existing.episodes?.length || 0) ? lShow : existing;
+      const isLocalNewer = (lShow.lastUpdated || 0) >= (existing.lastUpdated || 0);
+      const newerShow = isLocalNewer ? lShow : existing;
 
       showMap.set(lShow.id, {
         ...baseShow,
+        manualStatus: newerShow.manualStatus ?? lShow.manualStatus ?? 'auto',
         watchedEpisodeIds: unionWatched,
-        userRating: lShow.userRating ?? existing.userRating,
-        userNotes: lShow.userNotes || existing.userNotes,
-        favorite: Boolean(lShow.favorite || existing.favorite),
+        userRating: newerShow.userRating ?? lShow.userRating ?? existing.userRating,
+        userNotes: newerShow.userNotes ?? lShow.userNotes ?? existing.userNotes,
+        favorite: newerShow.favorite ?? Boolean(lShow.favorite || existing.favorite),
+        lastUpdated: Math.max(lShow.lastUpdated || 0, existing.lastUpdated || 0),
         lastWatchedAt: Math.max(lShow.lastWatchedAt || 0, existing.lastWatchedAt || 0) || undefined
       });
     }

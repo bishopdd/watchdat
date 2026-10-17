@@ -29,6 +29,7 @@ interface WatchlistViewProps {
   shows: TrackedShow[];
   onSelectShow: (show: TrackedShow) => void;
   onToggleEpisode: (showId: number, episode: TVMazeEpisode) => void;
+  onToggleWatchLater: (showId: number) => void;
   onGoToDiscover: () => void;
   onLoadStarterShows: () => Promise<void>;
   isLoadingStarter: boolean;
@@ -41,6 +42,7 @@ export const WatchlistView: React.FC<WatchlistViewProps> = ({
   shows,
   onSelectShow,
   onToggleEpisode,
+  onToggleWatchLater,
   onGoToDiscover,
   onLoadStarterShows,
   isLoadingStarter,
@@ -70,11 +72,11 @@ export const WatchlistView: React.FC<WatchlistViewProps> = ({
   }, [shows, now]);
 
   // Watch Next Queue: all shows that currently have an unwatched aired episode
-  // (excluding shows explicitly parked in Watch Later with 0 watched episodes)
+  // (excluding any show parked in Watch Later)
   const watchNextQueue = useMemo(() => {
     return shows
       .filter((show) => {
-        if (show.manualStatus === 'watch_later' && show.watchedEpisodeIds.length === 0) {
+        if (show.manualStatus === 'watch_later') {
           return false;
         }
         return getNextEpisodeToWatch(show, now) !== null;
@@ -277,14 +279,27 @@ export const WatchlistView: React.FC<WatchlistViewProps> = ({
                       </div>
                     </div>
 
-                    {/* TV Time Checkmark Button */}
-                    <button
-                      onClick={(e) => handleQuickMarkWatched(e, show.id, nextEp)}
-                      title={`Mark ${formatEpisodeCode(nextEp.season, nextEp.number)} as watched`}
-                      className="w-12 h-12 rounded-2xl bg-amber-400 hover:bg-amber-300 active:scale-90 text-zinc-950 flex flex-col items-center justify-center flex-shrink-0 shadow-md shadow-amber-500/10 transition cursor-pointer"
-                    >
-                      <Check className="w-6 h-6 stroke-[2.75]" />
-                    </button>
+                    {/* TV Time Checkmark + Watch Later Buttons */}
+                    <div className="flex flex-col items-center gap-1.5 flex-shrink-0">
+                      <button
+                        onClick={(e) => handleQuickMarkWatched(e, show.id, nextEp)}
+                        title={`Mark ${formatEpisodeCode(nextEp.season, nextEp.number)} as watched`}
+                        className="w-11 h-11 rounded-2xl bg-amber-400 hover:bg-amber-300 active:scale-90 text-zinc-950 flex items-center justify-center shadow-md shadow-amber-500/10 transition cursor-pointer"
+                      >
+                        <Check className="w-5 h-5 stroke-[2.75]" />
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onToggleWatchLater(show.id);
+                        }}
+                        title="Move show to Watch Later"
+                        className="px-2 py-1 rounded-lg bg-zinc-800/90 hover:bg-zinc-700 border border-zinc-700/80 text-[10px] font-semibold text-zinc-300 hover:text-amber-300 flex items-center gap-1 transition cursor-pointer"
+                      >
+                        <Bookmark className="w-3 h-3" />
+                        <span>Later</span>
+                      </button>
+                    </div>
                   </div>
 
                   {/* Bottom Progress Strip */}
@@ -372,7 +387,7 @@ export const WatchlistView: React.FC<WatchlistViewProps> = ({
             {activeTab === 'upcoming' &&
               'Shows you are 100% caught up on that are still running or have upcoming episodes.'}
             {activeTab === 'watch_later' &&
-              'Shows bookmarked to start watching when you have time.'}
+              'Shows bookmarked to watch later when you have time.'}
             {activeTab === 'completed' &&
               'Ended shows where you have watched every single episode.'}
             {activeTab === 'all' && 'All TV shows in your personal library.'}
@@ -407,6 +422,7 @@ export const WatchlistView: React.FC<WatchlistViewProps> = ({
               const countdown = nextUpcoming
                 ? formatAirDateCountdown(nextUpcoming, now)
                 : null;
+              const isWatchLater = show.manualStatus === 'watch_later';
 
               return (
                 <div
@@ -512,8 +528,25 @@ export const WatchlistView: React.FC<WatchlistViewProps> = ({
                       </div>
                     </div>
 
-                    <div className="mt-2.5 pt-2 border-t border-zinc-800/70 flex items-center justify-between text-[11px] text-zinc-500">
-                      <span className="truncate">{show.networkName || 'TV Series'}</span>
+                    <div className="mt-2.5 pt-2 border-t border-zinc-800/70 flex items-center justify-between gap-1.5 text-[11px]">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onToggleWatchLater(show.id);
+                        }}
+                        className={`px-2 py-1 rounded-lg border font-bold text-[10px] flex items-center gap-1 transition cursor-pointer ${
+                          isWatchLater
+                            ? 'bg-amber-400 text-zinc-950 border-amber-400'
+                            : 'bg-zinc-900 hover:bg-zinc-800 border-zinc-800 text-zinc-300 hover:text-amber-300'
+                        }`}
+                      >
+                        <Bookmark
+                          className={`w-3 h-3 ${isWatchLater ? 'fill-zinc-950' : ''}`}
+                        />
+                        <span>{isWatchLater ? 'Watching' : 'Watch Later'}</span>
+                      </button>
+
                       <span className="flex items-center text-zinc-400 group-hover:text-amber-400 font-semibold">
                         Episodes <ChevronRight className="w-3.5 h-3.5" />
                       </span>
