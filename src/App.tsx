@@ -1,15 +1,17 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   Tv,
   Calendar,
   Compass,
-  User,
+  User as UserIcon,
   Plus,
   WifiOff,
   Smartphone,
   Sparkles,
-  FileArchive
+  FileArchive,
+  Cloud
 } from 'lucide-react';
+import { User } from '@supabase/supabase-js';
 import {
   TrackedShow,
   TVMazeEpisode,
@@ -31,12 +33,19 @@ import {
   saveWatchActivity,
   WatchDatBackupPayload
 } from './services/storage';
+import {
+  getCurrentSessionUser,
+  pullCloudWatchlist,
+  pushCloudWatchlist,
+  mergeLocalAndCloudWatchlists
+} from './services/supabase';
 import { WatchlistView } from './components/WatchlistView';
 import { UpcomingView } from './components/UpcomingView';
 import { DiscoverView } from './components/DiscoverView';
 import { StatsProfileView } from './components/StatsProfileView';
 import { ShowDetailModal } from './components/ShowDetailModal';
 import { TVTimeImportModal } from './components/TVTimeImportModal';
+import { AuthModal } from './components/AuthModal';
 
 type NavPage = 'shows' | 'upcoming' | 'discover' | 'profile';
 
@@ -54,9 +63,15 @@ export function App() {
   const [isRefreshingAll, setIsRefreshingAll] = useState(false);
   const [isLoadingStarter, setIsLoadingStarter] = useState(false);
   const [isTVTimeImportOpen, setIsTVTimeImportOpen] = useState(false);
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
+  const [isSyncingCloud, setIsSyncingCloud] = useState(false);
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
+
+  const skipNextCloudPush = useRef(false);
 
   const showToast = useCallback((msg: string) => {
     setToastMessage(msg);
@@ -88,31 +103,140 @@ export function App() {
     };
   }, []);
 
-  // Load persisted data on mount
+  // Load persisted data & check Supabase session on mount
   useEffect(() => {
     async function init() {
-      const [loadedShows, loadedActivity] = await Promise.all([
+      const [loadedShows, loadedActivity, sessionUser] = await Promise.all([
         loadTrackedShows(),
-        loadWatchActivity()
+        loadWatchActivity(),
+        getCurrentSessionUser()
       ]);
+
       setShows(loadedShows);
       setActivity(loadedActivity);
       setIsLoaded(true);
+
+      if (sessionUser) {
+        setCurrentUser(sessionUser);
+        try {
+          setIsSyncingCloud(true);
+          const cloudRecord = await pullCloudWatchlist(sessionUser.id);
+          if (cloudRecord) {
+            const { mergedShows, mergedActivity } = mergeLocalAndCloudWatchlists(
+              loadedShows,
+              cloudRecord.shows,
+              loadedActivity,
+              cloudRecord.activity
+            );
+            skipNextCloudPush.current = true;
+            setShows(mergedShows);
+            setActivity(mergedActivity);
+            setLastSyncedAt(cloudRecord.updatedAt || new Date().toISOString());
+          } else if (loadedShows.length > 0) {
+            const ts = await pushCloudWatchlist(sessionUser.id, loadedShows, loadedActivity);
+            setLastSyncedAt(ts);
+          }
+        } catch {
+          // Ignore offline cloud pull error
+        } finally {
+          setIsSyncingCloud(false);
+        }
+      }
     }
     init();
   }, []);
 
-  // Persist shows whenever updated
+  // Persist shows locally whenever updated
   useEffect(() => {
     if (!isLoaded) return;
     saveTrackedShows(shows);
   }, [shows, isLoaded]);
 
-  // Persist activity whenever updated
+  // Persist activity locally whenever updated
   useEffect(() => {
     if (!isLoaded) return;
     saveWatchActivity(activity);
   }, [activity, isLoaded]);
+
+  // Automatic debounced Cloud Push when signed in
+  useEffect(() => {
+    if (!isLoaded || !currentUser || isOffline) return;
+    if (skipNextCloudPush.current) {
+      skipNextCloudPush.current = false;
+      return;
+    }
+
+    const timer = setTimeout(async () => {
+      try {
+        setIsSyncingCloud(true);
+        const ts = await pushCloudWatchlist(currentUser.id, shows, activity);
+        setLastSyncedAt(ts);
+      } catch {
+        // Silent retry on next update
+      } finally {
+        setIsSyncingCloud(false);
+      }
+    }, 1200);
+
+    return () => clearTimeout(timer);
+  }, [shows, activity, isLoaded, currentUser, isOffline]);
+
+  const handleAuthSuccess = async (user: User) => {
+    setCurrentUser(user);
+    setIsSyncingCloud(true);
+    try {
+      const cloudRecord = await pullCloudWatchlist(user.id);
+      if (cloudRecord) {
+        const { mergedShows, mergedActivity } = mergeLocalAndCloudWatchlists(
+          shows,
+          cloudRecord.shows,
+          activity,
+          cloudRecord.activity
+        );
+        setShows(mergedShows);
+        setActivity(mergedActivity);
+        const ts = await pushCloudWatchlist(user.id, mergedShows, mergedActivity);
+        setLastSyncedAt(ts);
+      } else {
+        const ts = await pushCloudWatchlist(user.id, shows, activity);
+        setLastSyncedAt(ts);
+      }
+      setIsAuthModalOpen(false);
+      showToast(`Signed in as ${user.email} & synced shows to cloud!`);
+    } catch (err) {
+      showToast(
+        err instanceof Error
+          ? `Signed in, but cloud table needs setup: ${err.message}`
+          : 'Signed in!'
+      );
+    } finally {
+      setIsSyncingCloud(false);
+    }
+  };
+
+  const handleManualCloudSync = async () => {
+    if (!currentUser) return;
+    setIsSyncingCloud(true);
+    try {
+      const cloudRecord = await pullCloudWatchlist(currentUser.id);
+      const { mergedShows, mergedActivity } = mergeLocalAndCloudWatchlists(
+        shows,
+        cloudRecord?.shows || [],
+        activity,
+        cloudRecord?.activity || []
+      );
+      skipNextCloudPush.current = true;
+      setShows(mergedShows);
+      setActivity(mergedActivity);
+      const ts = await pushCloudWatchlist(currentUser.id, mergedShows, mergedActivity);
+      setLastSyncedAt(ts);
+      showToast('Synced shows with your cloud account!');
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Cloud sync failed.');
+    } finally {
+      setIsSyncingCloud(false);
+    }
+  };
 
   const selectedShow = useMemo(
     () => shows.find((s) => s.id === selectedShowId) || null,
@@ -539,7 +663,7 @@ export function App() {
                   : 'text-zinc-400 hover:text-white'
               }`}
             >
-              <User className="w-4 h-4" />
+              <UserIcon className="w-4 h-4" />
               <span>Profile &amp; Stats</span>
             </button>
           </nav>
@@ -553,10 +677,37 @@ export function App() {
               </span>
             )}
 
+            <button
+              onClick={() => setIsAuthModalOpen(true)}
+              title={
+                currentUser
+                  ? `Signed in as ${currentUser.email}`
+                  : 'Sign In to sync shows across Android & Web'
+              }
+              className={`px-3 py-2 rounded-xl border font-bold text-xs flex items-center gap-1.5 transition cursor-pointer ${
+                currentUser
+                  ? 'bg-emerald-500/15 hover:bg-emerald-500/25 border-emerald-500/30 text-emerald-300'
+                  : 'bg-zinc-800/90 hover:bg-zinc-800 border-zinc-700 text-zinc-200 hover:text-amber-300'
+              }`}
+            >
+              <Cloud
+                className={`w-3.5 h-3.5 ${
+                  isSyncingCloud
+                    ? 'animate-pulse text-amber-400'
+                    : currentUser
+                    ? 'text-emerald-400'
+                    : 'text-sky-400'
+                }`}
+              />
+              <span className="hidden md:inline">
+                {currentUser ? 'Cloud Synced' : 'Sign In'}
+              </span>
+            </button>
+
             {deferredPrompt && (
               <button
                 onClick={handleInstallPwa}
-                className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-amber-300 text-xs font-bold transition cursor-pointer"
+                className="hidden lg:flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-amber-300 text-xs font-bold transition cursor-pointer"
               >
                 <Smartphone className="w-3.5 h-3.5" />
                 Install App
@@ -628,6 +779,8 @@ export function App() {
             canInstallPwa={Boolean(deferredPrompt)}
             onInstallPwa={handleInstallPwa}
             onOpenTVTimeImport={() => setIsTVTimeImportOpen(true)}
+            userEmail={currentUser?.email || null}
+            onOpenAuthModal={() => setIsAuthModalOpen(true)}
           />
         )}
       </main>
@@ -684,7 +837,7 @@ export function App() {
             activePage === 'profile' ? 'text-amber-400' : 'text-zinc-500'
           }`}
         >
-          <User className="w-5 h-5" />
+          <UserIcon className="w-5 h-5" />
           <span>Profile</span>
         </button>
       </nav>
@@ -717,6 +870,24 @@ export function App() {
             setActivePage('shows');
             showToast(`Successfully imported ${importedCount} shows from TV Time!`);
           }}
+        />
+      )}
+
+      {/* Cloud Login & Sync Modal */}
+      {isAuthModalOpen && (
+        <AuthModal
+          user={currentUser}
+          lastSyncedAt={lastSyncedAt}
+          isSyncing={isSyncingCloud}
+          onClose={() => setIsAuthModalOpen(false)}
+          onAuthSuccess={handleAuthSuccess}
+          onSignOutSuccess={() => {
+            setCurrentUser(null);
+            setLastSyncedAt(null);
+            setIsAuthModalOpen(false);
+            showToast('Signed out of cloud account (your local shows are still saved).');
+          }}
+          onManualSync={handleManualCloudSync}
         />
       )}
 

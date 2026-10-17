@@ -1,0 +1,46 @@
+name: Build WatchDat Android APK
+
+on:
+  push:
+    branches: ['main', 'master']
+  workflow_dispatch:
+
+jobs:
+  build-android-apk:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+
+      - name: Set up JDK 21 for Android Gradle
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build Web Bundle & Sync Capacitor Android
+        run: |
+          npm run build
+          npx cap sync android
+
+      - name: Grant execute permission for Gradlew
+        run: chmod +x android/gradlew
+
+      - name: Build Debug APK
+        working-directory: ./android
+        run: ./gradlew assembleDebug
+
+      - name: Upload WatchDat Android APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: WatchDat-Android-APK
+          path: android/app/build/outputs/apk/debug/app-debug.apk

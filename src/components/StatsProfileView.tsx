@@ -11,7 +11,8 @@ import {
   History,
   Flame,
   Smartphone,
-  FileArchive
+  FileArchive,
+  Cloud
 } from 'lucide-react';
 import { TrackedShow, WatchActivityItem } from '../types/tv';
 import {
@@ -31,6 +32,8 @@ interface StatsProfileViewProps {
   canInstallPwa: boolean;
   onInstallPwa: () => void;
   onOpenTVTimeImport: () => void;
+  userEmail: string | null;
+  onOpenAuthModal: () => void;
 }
 
 export const StatsProfileView: React.FC<StatsProfileViewProps> = ({
@@ -42,7 +45,9 @@ export const StatsProfileView: React.FC<StatsProfileViewProps> = ({
   isRefreshingAll,
   canInstallPwa,
   onInstallPwa,
-  onOpenTVTimeImport
+  onOpenTVTimeImport,
+  userEmail,
+  onOpenAuthModal
 }) => {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const now = useMemo(() => new Date(), [shows]);
@@ -408,6 +413,18 @@ export const StatsProfileView: React.FC<StatsProfileViewProps> = ({
           </div>
 
           <div className="flex flex-wrap gap-2.5 pt-2">
+            <button
+              onClick={onOpenAuthModal}
+              className={`px-4 py-2.5 rounded-xl font-bold text-xs flex items-center gap-1.5 shadow transition cursor-pointer ${
+                userEmail
+                  ? 'bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-emerald-300'
+                  : 'bg-sky-500/15 hover:bg-sky-500/25 border border-sky-500/30 text-sky-300'
+              }`}
+            >
+              <Cloud className="w-4 h-4" />
+              {userEmail ? `Cloud Sync (${userEmail})` : 'Sign In for Cloud Sync'}
+            </button>
+
             <button
               onClick={onOpenTVTimeImport}
               className="px-4 py-2.5 rounded-xl bg-amber-400 hover:bg-amber-300 text-zinc-950 font-bold text-xs flex items-center gap-1.5 shadow transition cursor-pointer"
