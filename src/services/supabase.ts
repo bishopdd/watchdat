@@ -55,6 +55,25 @@ export interface CloudWatchlistRecord {
   updatedAt: string | null;
 }
 
+// Compact episode objects for fast, reliable cloud sync (avoids multi-MB HTML summary payloads)
+function compactShowsForCloud(shows: TrackedShow[]): TrackedShow[] {
+  return shows.map((s) => ({
+    ...s,
+    episodes: (s.episodes || []).map((ep) => ({
+      id: ep.id,
+      name: ep.name,
+      season: ep.season,
+      number: ep.number,
+      airdate: ep.airdate,
+      airtime: ep.airtime,
+      airstamp: ep.airstamp,
+      runtime: ep.runtime,
+      image: ep.image,
+      summary: null
+    }))
+  }));
+}
+
 export async function pullCloudWatchlist(userId: string): Promise<CloudWatchlistRecord | null> {
   const { data, error } = await supabase
     .from('user_watchlists')
@@ -81,10 +100,12 @@ export async function pushCloudWatchlist(
   activity: WatchActivityItem[]
 ): Promise<string> {
   const nowIso = new Date().toISOString();
+  const compactedShows = compactShowsForCloud(shows);
+
   const { error } = await supabase.from('user_watchlists').upsert(
     {
       user_id: userId,
-      shows,
+      shows: compactedShows,
       activity: activity.slice(0, 150),
       updated_at: nowIso
     },
@@ -108,21 +129,27 @@ export function mergeLocalAndCloudWatchlists(
 
   // Seed with cloud shows first
   for (const cShow of cloudShows) {
-    showMap.set(cShow.id, cShow);
+    if (cShow && typeof cShow.id === 'number') {
+      showMap.set(cShow.id, cShow);
+    }
   }
 
   // Merge local shows on top (unioning watched episodes so no progress is ever lost)
   for (const lShow of localShows) {
+    if (!lShow || typeof lShow.id !== 'number') continue;
     const existing = showMap.get(lShow.id);
     if (!existing) {
       showMap.set(lShow.id, lShow);
     } else {
       const unionWatched = Array.from(
-        new Set([...existing.watchedEpisodeIds, ...lShow.watchedEpisodeIds])
+        new Set([...(existing.watchedEpisodeIds || []), ...(lShow.watchedEpisodeIds || [])])
       );
-      const newerShow = (lShow.lastUpdated || 0) >= (existing.lastUpdated || 0) ? lShow : existing;
+      // Prefer whichever show object has fuller episode details
+      const baseShow =
+        (lShow.episodes?.length || 0) >= (existing.episodes?.length || 0) ? lShow : existing;
+
       showMap.set(lShow.id, {
-        ...newerShow,
+        ...baseShow,
         watchedEpisodeIds: unionWatched,
         userRating: lShow.userRating ?? existing.userRating,
         userNotes: lShow.userNotes || existing.userNotes,
@@ -144,10 +171,52 @@ export function mergeLocalAndCloudWatchlists(
     .slice(0, 150);
 
   const mergedShows = Array.from(showMap.values()).sort((a, b) => {
-    const aTime = a.lastWatchedAt || a.addedAt;
-    const bTime = b.lastWatchedAt || b.addedAt;
+    const aTime = a.lastWatchedAt || a.addedAt || 0;
+    const bTime = b.lastWatchedAt || b.addedAt || 0;
     return bTime - aTime;
   });
 
   return { mergedShows, mergedActivity };
+}
+
+/**
+ * Safely pulls from Supabase, merges with local shows/activity, and pushes back
+ * to Supabase so neither device ever overwrites the other with an empty array.
+ */
+export async function syncWithCloudSafe(
+  userId: string,
+  localShows: TrackedShow[],
+  localActivity: WatchActivityItem[]
+): Promise<{
+  mergedShows: TrackedShow[];
+  mergedActivity: WatchActivityItem[];
+  syncedAt: string;
+}> {
+  const cloudRecord = await pullCloudWatchlist(userId);
+  const cloudShows = cloudRecord?.shows || [];
+  const cloudActivity = cloudRecord?.activity || [];
+
+  const { mergedShows, mergedActivity } = mergeLocalAndCloudWatchlists(
+    localShows,
+    cloudShows,
+    localActivity,
+    cloudActivity
+  );
+
+  // Push merged state back if local added anything or if no cloud record existed yet
+  const shouldPush =
+    !cloudRecord ||
+    mergedShows.length !== cloudShows.length ||
+    localShows.length > 0;
+
+  let syncedAt = cloudRecord?.updatedAt || new Date().toISOString();
+  if (shouldPush) {
+    syncedAt = await pushCloudWatchlist(userId, mergedShows, mergedActivity);
+  }
+
+  return {
+    mergedShows,
+    mergedActivity,
+    syncedAt
+  };
 }

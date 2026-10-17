@@ -35,9 +35,8 @@ import {
 } from './services/storage';
 import {
   getCurrentSessionUser,
-  pullCloudWatchlist,
   pushCloudWatchlist,
-  mergeLocalAndCloudWatchlists
+  syncWithCloudSafe
 } from './services/supabase';
 import { WatchlistView } from './components/WatchlistView';
 import { UpcomingView } from './components/UpcomingView';
@@ -71,7 +70,11 @@ export function App() {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
 
-  const skipNextCloudPush = useRef(false);
+  const initialCloudSyncDone = useRef(false);
+  const showsRef = useRef<TrackedShow[]>([]);
+  const activityRef = useRef<WatchActivityItem[]>([]);
+  showsRef.current = shows;
+  activityRef.current = activity;
 
   const showToast = useCallback((msg: string) => {
     setToastMessage(msg);
@@ -103,7 +106,7 @@ export function App() {
     };
   }, []);
 
-  // Load persisted data & check Supabase session on mount
+  // Load persisted data & perform initial two-way Supabase cloud sync on mount
   useEffect(() => {
     async function init() {
       const [loadedShows, loadedActivity, sessionUser] = await Promise.all([
@@ -118,29 +121,24 @@ export function App() {
 
       if (sessionUser) {
         setCurrentUser(sessionUser);
+        setIsSyncingCloud(true);
         try {
-          setIsSyncingCloud(true);
-          const cloudRecord = await pullCloudWatchlist(sessionUser.id);
-          if (cloudRecord) {
-            const { mergedShows, mergedActivity } = mergeLocalAndCloudWatchlists(
-              loadedShows,
-              cloudRecord.shows,
-              loadedActivity,
-              cloudRecord.activity
-            );
-            skipNextCloudPush.current = true;
-            setShows(mergedShows);
-            setActivity(mergedActivity);
-            setLastSyncedAt(cloudRecord.updatedAt || new Date().toISOString());
-          } else if (loadedShows.length > 0) {
-            const ts = await pushCloudWatchlist(sessionUser.id, loadedShows, loadedActivity);
-            setLastSyncedAt(ts);
-          }
+          const { mergedShows, mergedActivity, syncedAt } = await syncWithCloudSafe(
+            sessionUser.id,
+            loadedShows,
+            loadedActivity
+          );
+          setShows(mergedShows);
+          setActivity(mergedActivity);
+          setLastSyncedAt(syncedAt);
         } catch {
-          // Ignore offline cloud pull error
+          // Offline or network error
         } finally {
+          initialCloudSyncDone.current = true;
           setIsSyncingCloud(false);
         }
+      } else {
+        initialCloudSyncDone.current = true;
       }
     }
     init();
@@ -158,55 +156,87 @@ export function App() {
     saveWatchActivity(activity);
   }, [activity, isLoaded]);
 
-  // Automatic debounced Cloud Push when signed in
+  // Automatic debounced Cloud Sync whenever shows or activity change after initial load
   useEffect(() => {
-    if (!isLoaded || !currentUser || isOffline) return;
-    if (skipNextCloudPush.current) {
-      skipNextCloudPush.current = false;
-      return;
-    }
-
+    if (!isLoaded || !currentUser || isOffline || !initialCloudSyncDone.current) return;
+    // Never blindly push an empty array on startup; syncWithCloudSafe merges safely
     const timer = setTimeout(async () => {
       try {
         setIsSyncingCloud(true);
-        const ts = await pushCloudWatchlist(currentUser.id, shows, activity);
-        setLastSyncedAt(ts);
+        const { mergedShows, mergedActivity, syncedAt } = await syncWithCloudSafe(
+          currentUser.id,
+          showsRef.current,
+          activityRef.current
+        );
+        if (mergedShows.length !== showsRef.current.length) {
+          setShows(mergedShows);
+          setActivity(mergedActivity);
+        }
+        setLastSyncedAt(syncedAt);
       } catch {
-        // Silent retry on next update
+        // Retry on next action
       } finally {
         setIsSyncingCloud(false);
       }
-    }, 1200);
+    }, 900);
 
     return () => clearTimeout(timer);
   }, [shows, activity, isLoaded, currentUser, isOffline]);
+
+  // Auto-sync when switching back to the app window/tab on any device
+  useEffect(() => {
+    if (!currentUser) return;
+    const handleVisibilityOrFocus = async () => {
+      if (document.visibilityState === 'visible' && navigator.onLine && initialCloudSyncDone.current) {
+        try {
+          setIsSyncingCloud(true);
+          const { mergedShows, mergedActivity, syncedAt } = await syncWithCloudSafe(
+            currentUser.id,
+            showsRef.current,
+            activityRef.current
+          );
+          setShows(mergedShows);
+          setActivity(mergedActivity);
+          setLastSyncedAt(syncedAt);
+        } catch {
+          // Ignore
+        } finally {
+          setIsSyncingCloud(false);
+        }
+      }
+    };
+
+    window.addEventListener('focus', handleVisibilityOrFocus);
+    document.addEventListener('visibilitychange', handleVisibilityOrFocus);
+    return () => {
+      window.removeEventListener('focus', handleVisibilityOrFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityOrFocus);
+    };
+  }, [currentUser]);
 
   const handleAuthSuccess = async (user: User) => {
     setCurrentUser(user);
     setIsSyncingCloud(true);
     try {
-      const cloudRecord = await pullCloudWatchlist(user.id);
-      if (cloudRecord) {
-        const { mergedShows, mergedActivity } = mergeLocalAndCloudWatchlists(
-          shows,
-          cloudRecord.shows,
-          activity,
-          cloudRecord.activity
-        );
-        setShows(mergedShows);
-        setActivity(mergedActivity);
-        const ts = await pushCloudWatchlist(user.id, mergedShows, mergedActivity);
-        setLastSyncedAt(ts);
-      } else {
-        const ts = await pushCloudWatchlist(user.id, shows, activity);
-        setLastSyncedAt(ts);
-      }
+      const { mergedShows, mergedActivity, syncedAt } = await syncWithCloudSafe(
+        user.id,
+        showsRef.current,
+        activityRef.current
+      );
+      setShows(mergedShows);
+      setActivity(mergedActivity);
+      setLastSyncedAt(syncedAt);
+      initialCloudSyncDone.current = true;
       setIsAuthModalOpen(false);
-      showToast(`Signed in as ${user.email} & synced shows to cloud!`);
+      showToast(
+        `Signed in & synced ${mergedShows.length} ${
+          mergedShows.length === 1 ? 'show' : 'shows'
+        } with your cloud account!`
+      );
     } catch (err) {
       showToast(
         err instanceof Error
-          ? `Signed in, but cloud table needs setup: ${err.message}`
+          ? `Signed in, but cloud sync encountered an error: ${err.message}`
           : 'Signed in!'
       );
     } finally {
@@ -218,19 +248,19 @@ export function App() {
     if (!currentUser) return;
     setIsSyncingCloud(true);
     try {
-      const cloudRecord = await pullCloudWatchlist(currentUser.id);
-      const { mergedShows, mergedActivity } = mergeLocalAndCloudWatchlists(
-        shows,
-        cloudRecord?.shows || [],
-        activity,
-        cloudRecord?.activity || []
+      const { mergedShows, mergedActivity, syncedAt } = await syncWithCloudSafe(
+        currentUser.id,
+        showsRef.current,
+        activityRef.current
       );
-      skipNextCloudPush.current = true;
       setShows(mergedShows);
       setActivity(mergedActivity);
-      const ts = await pushCloudWatchlist(currentUser.id, mergedShows, mergedActivity);
-      setLastSyncedAt(ts);
-      showToast('Synced shows with your cloud account!');
+      setLastSyncedAt(syncedAt);
+      showToast(
+        `Synced ${mergedShows.length} ${
+          mergedShows.length === 1 ? 'show' : 'shows'
+        } across your devices!`
+      );
     } catch (err) {
       showToast(err instanceof Error ? err.message : 'Cloud sync failed.');
     } finally {
@@ -478,11 +508,20 @@ export function App() {
   };
 
   // Remove a show from watchlist
-  const handleRemoveShow = (showId: number) => {
+  const handleRemoveShow = async (showId: number) => {
     const target = shows.find((s) => s.id === showId);
-    setShows((prev) => prev.filter((s) => s.id !== showId));
+    const nextShows = shows.filter((s) => s.id !== showId);
+    setShows(nextShows);
     if (target) {
       showToast(`Removed "${target.name}" from your library`);
+    }
+    if (currentUser && !isOffline) {
+      try {
+        const ts = await pushCloudWatchlist(currentUser.id, nextShows, activity);
+        setLastSyncedAt(ts);
+      } catch {
+        // Ignore
+      }
     }
   };
 
