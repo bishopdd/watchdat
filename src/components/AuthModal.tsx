@@ -8,21 +8,15 @@ import {
   RefreshCw,
   CheckCircle2,
   AlertCircle,
-  Settings,
-  Copy,
-  Check,
   Loader2,
   UserPlus,
   LogIn
 } from 'lucide-react';
 import { User } from '@supabase/supabase-js';
 import {
-  getSupabaseConfig,
-  saveSupabaseConfig,
   signInWithEmail,
   signUpWithEmail,
-  signOutUser,
-  SUPABASE_SQL_SETUP_SCRIPT
+  signOutUser
 } from '../services/supabase';
 
 interface AuthModalProps {
@@ -44,40 +38,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   onSignOutSuccess,
   onManualSync
 }) => {
-  const initialConfig = getSupabaseConfig();
-  const [showConfig, setShowConfig] = useState(!initialConfig.isConfigured);
-  const [supabaseUrl, setSupabaseUrl] = useState(initialConfig.url);
-  const [supabaseKey, setSupabaseKey] = useState(initialConfig.anonKey);
-  const [copiedSql, setCopiedSql] = useState(false);
-
   const [authTab, setAuthTab] = useState<'signin' | 'signup'>('signin');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [infoMsg, setInfoMsg] = useState<string | null>(null);
-
-  const handleSaveConfig = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!supabaseUrl.trim().startsWith('https://') || !supabaseKey.trim()) {
-      setErrorMsg('Please enter a valid https:// Supabase Project URL and Anon Public Key.');
-      return;
-    }
-    saveSupabaseConfig(supabaseUrl, supabaseKey);
-    setErrorMsg(null);
-    setShowConfig(false);
-    setInfoMsg('Supabase connection saved! You can now sign up or sign in below.');
-  };
-
-  const handleCopySql = async () => {
-    try {
-      await navigator.clipboard.writeText(SUPABASE_SQL_SETUP_SCRIPT);
-      setCopiedSql(true);
-      setTimeout(() => setCopiedSql(false), 2500);
-    } catch {
-      // Fallback
-    }
-  };
 
   const handleAuthSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -128,7 +94,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       onClick={onClose}
     >
       <div
-        className="relative w-full max-w-lg max-h-[92vh] bg-[#12141c] border border-zinc-800/90 sm:rounded-2xl rounded-t-2xl shadow-2xl flex flex-col overflow-hidden"
+        className="relative w-full max-w-md max-h-[92vh] bg-[#12141c] border border-zinc-800/90 sm:rounded-2xl rounded-t-2xl shadow-2xl flex flex-col overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -139,33 +105,20 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             </div>
             <div>
               <h2 className="text-base sm:text-lg font-extrabold text-white">
-                {user ? 'Cloud Account & Sync' : 'Sign In & Cloud Sync'}
+                {user ? 'Cloud Account & Sync' : 'Sign In to WatchDat'}
               </h2>
               <p className="text-xs text-zinc-400">
-                Save your shows &amp; episode progress across Android and Web
+                Sync your watched shows across Android &amp; Web
               </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-1.5">
-            <button
-              onClick={() => setShowConfig(!showConfig)}
-              title="Supabase Cloud Database Settings"
-              className={`p-2 rounded-full border transition cursor-pointer ${
-                showConfig
-                  ? 'bg-amber-400/20 border-amber-400/40 text-amber-300'
-                  : 'bg-zinc-800/80 border-zinc-700/60 text-zinc-400 hover:text-white'
-              }`}
-            >
-              <Settings className="w-4 h-4" />
-            </button>
-            <button
-              onClick={onClose}
-              className="p-2 rounded-full bg-zinc-800/80 border border-zinc-700/60 text-zinc-400 hover:text-white transition cursor-pointer"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
+          <button
+            onClick={onClose}
+            className="p-2 rounded-full bg-zinc-800/80 border border-zinc-700/60 text-zinc-400 hover:text-white transition cursor-pointer"
+          >
+            <X className="w-4 h-4" />
+          </button>
         </div>
 
         {/* Body */}
@@ -184,101 +137,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             </div>
           )}
 
-          {/* Supabase Project Configuration View */}
-          {showConfig ? (
-            <form onSubmit={handleSaveConfig} className="space-y-4">
-              <div className="bg-zinc-900/80 border border-zinc-800 rounded-xl p-3.5 text-xs text-zinc-300 space-y-2">
-                <div className="font-bold text-amber-300">
-                  Free Supabase Cloud Setup (100% Free Tier)
-                </div>
-                <ol className="list-decimal list-inside space-y-1 text-zinc-400">
-                  <li>
-                    Create a free project at{' '}
-                    <a
-                      href="https://supabase.com/dashboard"
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-amber-400 underline"
-                    >
-                      supabase.com/dashboard
-                    </a>
-                    .
-                  </li>
-                  <li>
-                    In Supabase, open <strong>SQL Editor</strong>, click{' '}
-                    <strong>Copy SQL Table Setup</strong> below, and run it once.
-                  </li>
-                  <li>
-                    Go to <strong>Project Settings &rarr; Data API / API Keys</strong> and paste
-                    your <strong>Project URL</strong> and <strong>anon public key</strong> below.
-                  </li>
-                </ol>
-                <button
-                  type="button"
-                  onClick={handleCopySql}
-                  className="mt-2 px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-amber-300 font-bold text-xs flex items-center gap-1.5 transition cursor-pointer"
-                >
-                  {copiedSql ? (
-                    <>
-                      <Check className="w-3.5 h-3.5 text-emerald-400" />
-                      Copied SQL Script to Clipboard!
-                    </>
-                  ) : (
-                    <>
-                      <Copy className="w-3.5 h-3.5" />
-                      Copy SQL Table Setup Script
-                    </>
-                  )}
-                </button>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-zinc-400 mb-1.5">
-                  Supabase Project URL
-                </label>
-                <input
-                  type="url"
-                  value={supabaseUrl}
-                  onChange={(e) => setSupabaseUrl(e.target.value)}
-                  placeholder="https://your-project-id.supabase.co"
-                  className="w-full rounded-xl bg-zinc-900 border border-zinc-800 px-3.5 py-2.5 text-xs sm:text-sm text-white placeholder:text-zinc-600 focus:outline-none focus:border-amber-400"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-zinc-400 mb-1.5">
-                  Supabase Anon Public Key
-                </label>
-                <input
-                  type="text"
-                  value={supabaseKey}
-                  onChange={(e) => setSupabaseKey(e.target.value)}
-                  placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
-                  className="w-full rounded-xl bg-zinc-900 border border-zinc-800 px-3.5 py-2.5 text-xs sm:text-sm text-white placeholder:text-zinc-600 focus:outline-none focus:border-amber-400 font-mono"
-                  required
-                />
-              </div>
-
-              <div className="flex items-center justify-end gap-2 pt-1">
-                {initialConfig.isConfigured && (
-                  <button
-                    type="button"
-                    onClick={() => setShowConfig(false)}
-                    className="px-3.5 py-2 rounded-xl bg-zinc-800 text-zinc-300 text-xs font-semibold cursor-pointer"
-                  >
-                    Back to Login
-                  </button>
-                )}
-                <button
-                  type="submit"
-                  className="px-5 py-2.5 rounded-xl bg-amber-400 hover:bg-amber-300 text-zinc-950 font-bold text-xs shadow transition cursor-pointer"
-                >
-                  Save Cloud Connection
-                </button>
-              </div>
-            </form>
-          ) : user ? (
+          {user ? (
             /* Signed-In User Account View */
             <div className="space-y-4">
               <div className="bg-zinc-900/90 border border-emerald-500/30 rounded-2xl p-4 flex items-center justify-between gap-3">
@@ -404,7 +263,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   )}
                   {authTab === 'signin'
                     ? 'Sign In & Sync Shows'
-                    : 'Create Free Cloud Account'}
+                    : 'Create Account'}
                 </button>
               </form>
             </div>

@@ -1,82 +1,22 @@
 import { createClient, SupabaseClient, User } from '@supabase/supabase-js';
 import { TrackedShow, WatchActivityItem } from '../types/tv';
 
-const LS_SUPABASE_URL = 'watchdat_supabase_url';
-const LS_SUPABASE_ANON_KEY = 'watchdat_supabase_anon_key';
+const SUPABASE_URL = 'https://qsplvkggcifngglqqiep.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_irizvOqUqSDaQPy74BH59w_WEb3CkKz';
 
-const DEFAULT_SUPABASE_URL = 'https://qsplvkggcifngglqqiep.supabase.co';
-const DEFAULT_SUPABASE_ANON_KEY = 'sb_publishable_irizvOqUqSDaQPy74BH59w_WEb3CkKz';
-
-let cachedClient: SupabaseClient | null = null;
-let cachedConfigKey = '';
-
-export const SUPABASE_SQL_SETUP_SCRIPT = `create table if not exists public.user_watchlists (
-  user_id uuid primary key references auth.users(id) on delete cascade,
-  shows jsonb not null default '[]'::jsonb,
-  activity jsonb not null default '[]'::jsonb,
-  updated_at timestamptz not null default now()
-);
-
-alter table public.user_watchlists enable row level security;
-
-create policy "Users can view their own watchlist"
-  on public.user_watchlists for select
-  using (auth.uid() = user_id);
-
-create policy "Users can insert their own watchlist"
-  on public.user_watchlists for insert
-  with check (auth.uid() = user_id);
-
-create policy "Users can update their own watchlist"
-  on public.user_watchlists for update
-  using (auth.uid() = user_id)
-  with check (auth.uid() = user_id);`;
-
-export function getSupabaseConfig(): { url: string; anonKey: string; isConfigured: boolean } {
-  const envUrl = (import.meta.env.VITE_SUPABASE_URL as string | undefined)?.trim() || '';
-  const envKey = (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined)?.trim() || '';
-
-  const storedUrl = localStorage.getItem(LS_SUPABASE_URL)?.trim() || '';
-  const storedKey = localStorage.getItem(LS_SUPABASE_ANON_KEY)?.trim() || '';
-
-  const url = storedUrl || envUrl || DEFAULT_SUPABASE_URL;
-  const anonKey = storedKey || envKey || DEFAULT_SUPABASE_ANON_KEY;
-
-  return {
-    url,
-    anonKey,
-    isConfigured: Boolean(url && anonKey && url.startsWith('https://'))
-  };
-}
-
-export function saveSupabaseConfig(url: string, anonKey: string): void {
-  localStorage.setItem(LS_SUPABASE_URL, url.trim());
-  localStorage.setItem(LS_SUPABASE_ANON_KEY, anonKey.trim());
-  cachedClient = null;
-  cachedConfigKey = '';
-}
-
-export function getSupabaseClient(): SupabaseClient | null {
-  const { url, anonKey, isConfigured } = getSupabaseConfig();
-  if (!isConfigured) return null;
-
-  const key = `${url}::${anonKey}`;
-  if (!cachedClient || cachedConfigKey !== key) {
-    cachedClient = createClient(url, anonKey, {
-      auth: {
-        persistSession: true,
-        autoRefreshToken: true
-      }
-    });
-    cachedConfigKey = key;
+export const supabase: SupabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+  auth: {
+    persistSession: true,
+    autoRefreshToken: true
   }
-  return cachedClient;
+});
+
+export function getSupabaseClient(): SupabaseClient {
+  return supabase;
 }
 
 export async function getCurrentSessionUser(): Promise<User | null> {
-  const client = getSupabaseClient();
-  if (!client) return null;
-  const { data } = await client.auth.getSession();
+  const { data } = await supabase.auth.getSession();
   return data.session?.user ?? null;
 }
 
@@ -84,10 +24,7 @@ export async function signUpWithEmail(
   email: string,
   password: string
 ): Promise<{ user: User | null; needsEmailConfirmation: boolean }> {
-  const client = getSupabaseClient();
-  if (!client) throw new Error('Supabase is not configured yet.');
-
-  const { data, error } = await client.auth.signUp({
+  const { data, error } = await supabase.auth.signUp({
     email: email.trim(),
     password
   });
@@ -98,10 +35,7 @@ export async function signUpWithEmail(
 }
 
 export async function signInWithEmail(email: string, password: string): Promise<User> {
-  const client = getSupabaseClient();
-  if (!client) throw new Error('Supabase is not configured yet.');
-
-  const { data, error } = await client.auth.signInWithPassword({
+  const { data, error } = await supabase.auth.signInWithPassword({
     email: email.trim(),
     password
   });
@@ -112,9 +46,7 @@ export async function signInWithEmail(email: string, password: string): Promise<
 }
 
 export async function signOutUser(): Promise<void> {
-  const client = getSupabaseClient();
-  if (!client) return;
-  await client.auth.signOut();
+  await supabase.auth.signOut();
 }
 
 export interface CloudWatchlistRecord {
@@ -124,10 +56,7 @@ export interface CloudWatchlistRecord {
 }
 
 export async function pullCloudWatchlist(userId: string): Promise<CloudWatchlistRecord | null> {
-  const client = getSupabaseClient();
-  if (!client) return null;
-
-  const { data, error } = await client
+  const { data, error } = await supabase
     .from('user_watchlists')
     .select('shows, activity, updated_at')
     .eq('user_id', userId)
@@ -151,11 +80,8 @@ export async function pushCloudWatchlist(
   shows: TrackedShow[],
   activity: WatchActivityItem[]
 ): Promise<string> {
-  const client = getSupabaseClient();
-  if (!client) throw new Error('Supabase is not configured.');
-
   const nowIso = new Date().toISOString();
-  const { error } = await client.from('user_watchlists').upsert(
+  const { error } = await supabase.from('user_watchlists').upsert(
     {
       user_id: userId,
       shows,
