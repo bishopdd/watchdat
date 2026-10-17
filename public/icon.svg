@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none">
+  <rect width="512" height="512" rx="116" fill="#0B0C10"/>
+  <rect x="24" y="24" width="464" height="464" rx="96" fill="url(#bgGrad)" stroke="#F59E0B" stroke-width="8" stroke-opacity="0.25"/>
+  <!-- Antennas -->
+  <path d="M196 86L256 146L316 86" stroke="#FBBF24" stroke-width="22" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- TV Frame -->
+  <rect x="92" y="142" width="328" height="248" rx="44" fill="#141720" stroke="#FBBF24" stroke-width="22"/>
+  <!-- Play / Check Badge inside screen -->
+  <path d="M198 268L238 308L322 224" stroke="#FBBF24" stroke-width="28" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- Stand -->
+  <path d="M176 426H336" stroke="#71717A" stroke-width="18" stroke-linecap="round"/>
+  <defs>
+    <linearGradient id="bgGrad" x1="0" y1="0" x2="512" y2="512" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#181A24"/>
+      <stop offset="100%" stop-color="#0B0C10"/>
+    </linearGradient>
+  </defs>
+</svg>
