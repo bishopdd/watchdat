@@ -7,59 +7,104 @@ const STORE_ACTIVITY = 'watch_activity';
 const LS_FALLBACK_SHOWS = 'watchdat_shows_v1';
 const LS_FALLBACK_ACTIVITY = 'watchdat_activity_v1';
 
-function openDB(): Promise<IDBDatabase> {
+function openDBWithTimeout(timeoutMs = 1500): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     if (typeof indexedDB === 'undefined') {
       reject(new Error('IndexedDB not supported'));
       return;
     }
-    const req = indexedDB.open(DB_NAME, DB_VERSION);
-    req.onupgradeneeded = () => {
-      const db = req.result;
-      if (!db.objectStoreNames.contains(STORE_SHOWS)) {
-        db.createObjectStore(STORE_SHOWS, { keyPath: 'id' });
+
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (!settled) {
+        settled = true;
+        reject(new Error('IndexedDB open timed out'));
       }
-      if (!db.objectStoreNames.contains(STORE_ACTIVITY)) {
-        db.createObjectStore(STORE_ACTIVITY, { keyPath: 'id' });
+    }, timeoutMs);
+
+    try {
+      const req = indexedDB.open(DB_NAME, DB_VERSION);
+      req.onupgradeneeded = () => {
+        const db = req.result;
+        if (!db.objectStoreNames.contains(STORE_SHOWS)) {
+          db.createObjectStore(STORE_SHOWS, { keyPath: 'id' });
+        }
+        if (!db.objectStoreNames.contains(STORE_ACTIVITY)) {
+          db.createObjectStore(STORE_ACTIVITY, { keyPath: 'id' });
+        }
+      };
+      req.onsuccess = () => {
+        if (!settled) {
+          settled = true;
+          clearTimeout(timer);
+          resolve(req.result);
+        } else {
+          req.result.close();
+        }
+      };
+      req.onerror = () => {
+        if (!settled) {
+          settled = true;
+          clearTimeout(timer);
+          reject(req.error);
+        }
+      };
+      req.onblocked = () => {
+        if (!settled) {
+          settled = true;
+          clearTimeout(timer);
+          reject(new Error('IndexedDB blocked'));
+        }
+      };
+    } catch (err) {
+      if (!settled) {
+        settled = true;
+        clearTimeout(timer);
+        reject(err);
       }
-    };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
+    }
   });
 }
 
 export async function loadTrackedShows(): Promise<TrackedShow[]> {
+  let lsShows: TrackedShow[] = [];
   try {
-    const db = await openDB();
-    return await new Promise<TrackedShow[]>((resolve, reject) => {
+    const raw = localStorage.getItem(LS_FALLBACK_SHOWS);
+    if (raw) lsShows = JSON.parse(raw);
+  } catch {
+    // Ignore localStorage error
+  }
+
+  try {
+    const db = await openDBWithTimeout();
+    return await new Promise<TrackedShow[]>((resolve) => {
       const tx = db.transaction(STORE_SHOWS, 'readonly');
       const store = tx.objectStore(STORE_SHOWS);
       const req = store.getAll();
       req.onsuccess = () => {
         const result = (req.result as TrackedShow[]) || [];
-        if (result.length > 0) {
-          resolve(result);
-        } else {
-          // Check localStorage fallback
-          const raw = localStorage.getItem(LS_FALLBACK_SHOWS);
-          resolve(raw ? JSON.parse(raw) : []);
-        }
+        db.close();
+        resolve(result.length >= lsShows.length ? result : lsShows);
       };
-      req.onerror = () => reject(req.error);
+      req.onerror = () => {
+        db.close();
+        resolve(lsShows);
+      };
     });
   } catch {
-    try {
-      const raw = localStorage.getItem(LS_FALLBACK_SHOWS);
-      return raw ? JSON.parse(raw) : [];
-    } catch {
-      return [];
-    }
+    return lsShows;
   }
 }
 
 export async function saveTrackedShows(shows: TrackedShow[]): Promise<void> {
   try {
-    const db = await openDB();
+    localStorage.setItem(LS_FALLBACK_SHOWS, JSON.stringify(shows));
+  } catch {
+    // Ignore quota errors if very large
+  }
+
+  try {
+    const db = await openDBWithTimeout();
     await new Promise<void>((resolve, reject) => {
       const tx = db.transaction(STORE_SHOWS, 'readwrite');
       const store = tx.objectStore(STORE_SHOWS);
@@ -67,24 +112,32 @@ export async function saveTrackedShows(shows: TrackedShow[]): Promise<void> {
       for (const show of shows) {
         store.put(show);
       }
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
+      tx.oncomplete = () => {
+        db.close();
+        resolve();
+      };
+      tx.onerror = () => {
+        db.close();
+        reject(tx.error);
+      };
     });
   } catch {
-    // Ignore IDB failure and rely on localStorage below
-  }
-
-  try {
-    localStorage.setItem(LS_FALLBACK_SHOWS, JSON.stringify(shows));
-  } catch {
-    // Ignore quota errors if very large
+    // Ignore IDB failure on iOS Private Mode
   }
 }
 
 export async function loadWatchActivity(): Promise<WatchActivityItem[]> {
+  let lsActivity: WatchActivityItem[] = [];
   try {
-    const db = await openDB();
-    return await new Promise<WatchActivityItem[]>((resolve, reject) => {
+    const raw = localStorage.getItem(LS_FALLBACK_ACTIVITY);
+    if (raw) lsActivity = JSON.parse(raw);
+  } catch {
+    // Ignore
+  }
+
+  try {
+    const db = await openDBWithTimeout();
+    return await new Promise<WatchActivityItem[]>((resolve) => {
       const tx = db.transaction(STORE_ACTIVITY, 'readonly');
       const store = tx.objectStore(STORE_ACTIVITY);
       const req = store.getAll();
@@ -92,22 +145,16 @@ export async function loadWatchActivity(): Promise<WatchActivityItem[]> {
         const items = ((req.result as WatchActivityItem[]) || []).sort(
           (a, b) => b.timestamp - a.timestamp
         );
-        if (items.length > 0) {
-          resolve(items);
-        } else {
-          const raw = localStorage.getItem(LS_FALLBACK_ACTIVITY);
-          resolve(raw ? JSON.parse(raw) : []);
-        }
+        db.close();
+        resolve(items.length >= lsActivity.length ? items : lsActivity);
       };
-      req.onerror = () => reject(req.error);
+      req.onerror = () => {
+        db.close();
+        resolve(lsActivity);
+      };
     });
   } catch {
-    try {
-      const raw = localStorage.getItem(LS_FALLBACK_ACTIVITY);
-      return raw ? JSON.parse(raw) : [];
-    } catch {
-      return [];
-    }
+    return lsActivity;
   }
 }
 
@@ -117,7 +164,13 @@ export async function saveWatchActivity(items: WatchActivityItem[]): Promise<voi
     .slice(0, 150);
 
   try {
-    const db = await openDB();
+    localStorage.setItem(LS_FALLBACK_ACTIVITY, JSON.stringify(trimmed));
+  } catch {
+    // Ignore quota error
+  }
+
+  try {
+    const db = await openDBWithTimeout();
     await new Promise<void>((resolve, reject) => {
       const tx = db.transaction(STORE_ACTIVITY, 'readwrite');
       const store = tx.objectStore(STORE_ACTIVITY);
@@ -125,17 +178,17 @@ export async function saveWatchActivity(items: WatchActivityItem[]): Promise<voi
       for (const item of trimmed) {
         store.put(item);
       }
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
+      tx.oncomplete = () => {
+        db.close();
+        resolve();
+      };
+      tx.onerror = () => {
+        db.close();
+        reject(tx.error);
+      };
     });
   } catch {
-    // Fallback below
-  }
-
-  try {
-    localStorage.setItem(LS_FALLBACK_ACTIVITY, JSON.stringify(trimmed));
-  } catch {
-    // Ignore quota error
+    // Fallback already saved in localStorage
   }
 }
 
